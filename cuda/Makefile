@@ -1,23 +1,11 @@
-# CUDA Toolkit
-CUDA_PATH ?= /usr/local/cuda
+NVCC = /usr/local/cuda/bin/nvcc 
 
-# NVCC compiler
-NVCC          ?= $(CUDA_PATH)/bin/nvcc
+matrixMult:matrixMult.o
+	$(NVCC) matrixMult.o -o matrixMult
 
-# MPI complier with wrapper
-MPICXX ?= $(shell which mpicxx)
-
-# Libraries
-LIBRARIES += -L$(CUDA_PATH)/lib64 -lcudart
-
-# Target rules
-all: stereo
-
-stereo.o:
-	$(NVCC) -c stereo.cu
-
-stereo: stereo.o
-	$(NVCC)  stereo.o -o stereo $(LIBRARIES)
+matrixMult.o:matrixMult.cu
+	$(NVCC) -c matrixMult.cu
 
 clean:
-	rm -f stereo *.o
+	rm *.o
+	rm matrixMult
