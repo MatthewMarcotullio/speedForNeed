@@ -1,0 +1,100 @@
+// Cmeated By:      Jacob Huckins & Mikey Thoreson
+// Last Modified:   3/2/2025
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <cuda.h>
+#include <cuda_runtime.h>
+
+// implementation taken from pg 109 of nvidia cuda C programming guide ver 4.2
+__device__ double doubleAtomicAdd(double* address, double val)
+{
+	unsigned long long int* address_as_ull=
+						(unsigned long long int*) address;
+	unsigned long long int old=*address_as_ull, assumed;
+	do {
+		assumed = old;
+		old = atomicCAS(address_as_ull, assumed,
+				__double_as_longlong(val +
+					__longlong_as_double(assumed)));
+	} while (assumed!= old);
+	return __longlong_as_double(old);
+}
+
+// comment
+
+__device__ void sumVect(double **vA, double size, double *C)
+{
+    // get thread index
+    int i = threadIdx.x;
+
+    // skip out of bounds threads
+    if (i >= size)
+        return;
+
+    // calulate the partial dot proudct
+    double partial = *vA[i];
+
+    // sum the partial answers together
+    doubleAtomicAdd(C, partial);
+}
+__device__ void sumVect(int **vA, int size, double *C)
+{
+    // get thread index
+    int i = threadIdx.x;
+
+    // skip out of bounds threads
+    if (i >= size)
+        return;
+
+    // calulate the partial dot proudct
+    double partial = *vA[i];
+
+    // sum the partial answers together
+    doubleAtomicAdd(C, partial);
+}
+
+__global__ void matrixMult(int *a, int *b, int *out, int size)
+{
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    int outIndex = x + y * size;
+
+    // for position (3, 4) of the result,
+    // multiply each element going left to right accross
+    // the 3rd row of A and the 4th col of B and sum the results
+    int outTotal = 0;
+    for (int i = 0; i < size; i++)
+    {
+        int aInd = i + (y * size);
+        int bInd = x + (i * size);
+        outTotal += a[aInd] * b[bInd];
+    }
+    out[outIndex] = outTotal;
+}
+__global__ void subMatrixMult(int *a, int *b, int size, int wSize, int offset, int *out)
+{
+    int x = blockIdx.x * blockDim.x + threadIdx.x - (wSize/2);
+    int y = blockIdx.y * blockDim.y + threadIdx.y - (wSize/2);
+
+    int outIndex = x + y * size;
+
+    // for position (3, 4) of the result,
+    // multiply each element going left to right accross
+    // the 3rd row of A and the 4th col of B and sum the results
+    int outTotal = 0;
+    for (int i = 0; i < size; i++)
+    {
+        int aInd = i + (y * size);
+        int bInd = x + (i * size);
+        outTotal += a[aInd] * b[bInd];
+    }
+    out[outIndex] = outTotal;
+}
+
+__global__ void fieldMatMul(int **a, int **b, int width, int height, double **c){
+    i = threadIdx.x;
+    j = blockIdx.y;
+    k = threadIdx.z;
+}

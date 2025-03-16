@@ -63,20 +63,19 @@ __device__ double doubleAtomicAdd(double* address, double val)
 //    *out = corCoef;
 //}
 //
+__global__ void helloWorld (int *l, int *r){
+    int idx_x = threadIdx.x + blockIdx.x * blockDim.x;
+    int idx_y = threadIdx.y + blockIdx.y * blockDim.y;
+
+}
 __device__ void mtxMult(int* l, int* r, int x, int y, int offset, double *result){
     int l_idx;
     int r_idx;
   for(int i = 0; i < WINDOW_DIM * WINDOW_DIM; i++){
       l_idx = (i / WINDOW_DIM + l_idx + ((i % WINDOW_DIM) *PIC_WIDTH));
       r_idx = (i / WINDOW_DIM + r_idx + offset + ((i % WINDOW_DIM) *PIC_WIDTH));
-      result[x +  * PIC_WIDTH]+=l[l_idx] * r[r_idx];
-  }
-}
-__global__ void calcRow (int *l, int *r, double row, double *out){
-    int idx_x = threadIdx.x + blockIdx.x * blockDim.x;
-    int idx_y = threadIdx.y + blockIdx.y * blockDim.y;
-
-    mtxMult(l, r, idx_y, row, idx_x, out);
+      result+=l[l_idx] * r[r_idx];
+  } 
 }
 int main()
 {
@@ -93,53 +92,30 @@ int main()
 //        printf("%d", helloMtx[i]);
 //    }
 
-    int* leftmtx = (int*) malloc(sizeof(int) * PIC_WIDTH * PIC_HEIGHT);
-    int* rightmtx = (int*) malloc(sizeof(int) * PIC_WIDTH * PIC_HEIGHT);
-    double* h_LR = (double*) malloc(sizeof(double) * PIC_WIDTH * PIC_HEIGHT);
+    int dims_3d_mtx = PIC_WIDTH * PIC_HEIGHT * PIC_WIDTH;
+    size_t size_double_mtx = sizeof(double) *dims_3d_mtx;
 
-    for(int i = 0; i < PIC_WIDTH * PIC_HEIGHT; i++){
-        leftmtx[i] = i;
-        rightmtx[i] = i;
-    }
+    double* h_LL;
+    cudaMalloc(&h_LL, size_double_mtx);
+    double* h_RR;
+    cudaMalloc(&h_RR, size_double_mtx);
+    double* h_RL;
+    cudaMalloc(&h_RL, size_double_mtx);
+    double* h_LR;
+    cudaMalloc(&h_LR, size_double_mtx);
+    double* h_CorrCoef;
+    cudaMalloc(&h_CorrCoef, size_double_mtx);
+    double* h_distanceCalc;
+    cudaMalloc(&h_distanceCalc, size_double_mtx);
 
-    int dims_2d_mtx = PIC_WIDTH * PIC_HEIGHT;
-    size_t size_double_mtx = sizeof(double) *dims_2d_mtx;
-
-    int * d_leftmtx;
-    cudaMalloc(&d_leftmtx, sizeof(int) * PIC_WIDTH * PIC_HEIGHT);
-    int * d_rightmtx;
-    cudaMalloc(&d_rightmtx, sizeof(int) * PIC_WIDTH * PIC_HEIGHT);
-    double* d_LL;
-    cudaMalloc(&d_LL, size_double_mtx);
-    double* d_RR;
-    cudaMalloc(&d_RR, size_double_mtx);
-    double* d_RL;
-    cudaMalloc(&d_RL, size_double_mtx);
-    double* d_LR;
-    cudaMalloc(&d_LR, size_double_mtx);
-    double* d_CorrCoef;
-    cudaMalloc(&d_CorrCoef, size_double_mtx);
-    double* d_distanceCalc;
-    cudaMalloc(&d_distanceCalc, size_double_mtx);
-
-    cudaMemcpy(d_leftmtx, leftmtx, sizeof(int) * PIC_WIDTH * PIC_HEIGHT, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_rightmtx, rightmtx, sizeof(int) * PIC_WIDTH * PIC_HEIGHT, cudaMemcpyHostToDevice);
-    calcRow<<<600,600>>>(d_leftmtx, d_rightmtx, 0, d_LR);
-    cudaMemcpy(d_LR, h_LR, sizeof(double) * PIC_WIDTH * PIC_HEIGHT, cudaMemcpyDeviceToHost);
-
-    for(int i = 0; i < PIC_WIDTH * PIC_HEIGHT; i++){
-        printf("%f", h_LR[i]);
-    }
 
     //get 3d matrix of windows
     //get 2d matrix of max
-    cudaFree(&d_leftmtx);
-    cudaFree(&d_rightmtx);
-    cudaFree(&d_LL);
-    cudaFree(&d_RR);
-    cudaFree(&d_RL);
-    cudaFree(&d_LR);
-    cudaFree(&d_CorrCoef);
-    cudaFree(&d_distanceCalc);
+    cudaFree(&h_LL);
+    cudaFree(&h_RR);
+    cudaFree(&h_RL);
+    cudaFree(&h_LR);
+    cudaFree(&h_CorrCoef);
+    cudaFree(&h_distanceCalc);
     return 0;
 }
