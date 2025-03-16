@@ -25,59 +25,74 @@ __device__ double doubleAtomicAdd(double* address, double val)
 	return __longlong_as_double(old);
 }
 
-//__global__ void bake
-//
-//__device__ void correlationCoefficient(int **l_win, int **r_win, int mtx_size, double *out)
-//{
-//    int x = threadIdx.x + blockDim.x * blockIdx.x;
-//    int y = threadIdx.y + blockDim.y * blockIdx.y;
-//    int z = threadIdx.z + blockDim.z * blockIdx.z;
-//
-//    // calc L dot 1
-//    double Ld1;
-//
-//
-//    // calc R dot 1
-//    double Rd1;
-//    sumVect<<<1, mtx_size>>>(r_win, mtx_size, &Rd1);
-//
-//    // calc (L dot R) / N
-//    double LdR;
-//    vectorDotProduct<<<1, mtx_size>>>(l_win, r_win, mtx_size, &LdR);
-//
-//    // calc (L dot L) / N
-//    double LdL;
-//    vectorDotProduct<<<1, mtx_size>>>(l_win, l_win, mtx_size, &LdL);
-//
-//    // calc (R dot R) / N
-//    double RdR;
-//    vectorDotProduct<<<1, mtx_size>>>(r_win, r_win, mtx_size, &RdR);
-//
-//    // calculate correlation coefficient
-//    // [n(X.Y) - (X.1)(Y.1)] / [(n(X.X) - X.1)(n(Y.Y - Y.1))]
-//    double top = mtx_size * LdR - Ld1 * Rd1;
-//    double bot = (mtx_size * LdL - Ld1) * (mtx_size * (RdR - Rd1));
-//
-//    double corCoef = top / bot;
-//
-//    *out = corCoef;
-//}
-//
-__device__ void mtxMult(int* l, int* r, int x, int y, int offset, double *result){
-    int l_idx;
-    int r_idx;
-  for(int i = 0; i < WINDOW_DIM * WINDOW_DIM; i++){
-      l_idx = (i / WINDOW_DIM + l_idx + ((i % WINDOW_DIM) *PIC_WIDTH));
-      r_idx = (i / WINDOW_DIM + r_idx + offset + ((i % WINDOW_DIM) *PIC_WIDTH));
-      result[x +  * PIC_WIDTH]+=l[l_idx] * r[r_idx];
-  }
-}
-__global__ void calcRow (int *l, int *r, double row, double *out){
-    int idx_x = threadIdx.x + blockIdx.x * blockDim.x;
-    int idx_y = threadIdx.y + blockIdx.y * blockDim.y;
+__device__ void winDotProduct(int *l_pic, int *r_pic, int x_center, int y_center, int offset, double &retVal){
+	int half_win = (WINDOW_DIM / 2);
+	int l_idx = (x_center - half_win) + ((y_center * PIC_WIDTH) - half_win);
+	int r_idx = (x_center + offset - half_win) + ((y_center * PIC_WIDTH) - half_win);
+	int l_idx_win = 0;
+	int r_idx_win = 0;
 
-    mtxMult(l, r, idx_y, row, idx_x, out);
+	retVal = 0;
+
+	for(int x = 0; x < WINDOW_DIM * WINDOW_DIM; x++){
+		for(int y = 0; y < WINDOW_DIM * WINDOW_DIM; y++){
+		l_idx_win = l_idx + (x + (y * WINDOW_DIM));
+		r_idx_win = r_idx + (x + (y * WINDOW_DIM));
+		retVal += l_pic[l_idx_win] * r_pic[r_idx_win];
+		}
+	}
 }
+
+__device__ void windowSum(int *pic, int x_center, int y_center, double &retVal){
+	int half_win = WINDOW_DIM / 2;
+	int idx = (x_center - half_win) + ((y_center * PIC_WIDTH) - half_win);
+	int idx_win = 0;
+
+	retVal = 0;
+
+	for(int x= 0; x < WINDOW_DIM * WINDOW_DIM; x++){
+		for(int y = 0; y < WINDOW_DIM * WINDOW_DIM; y++){
+		idx_win = idx + (x + (y * WINDOW_DIM));
+		retVal += pic[idx_win];
+		}
+	}
+}
+
+__global__ void correlationCoefficient(int *l, int *r, int row, double *out)
+{
+    int x = threadIdx.x + blockDim.x * blockIdx.x;
+    int y = threadIdx.y + blockDim.y * blockIdx.y;
+
+    // calc L dot 1
+    double Ld1;
+    windowSum(l, x, row, Ld1);
+
+    // calc R dot 1
+    double Rd1;
+    windowSum(r, x + y, row, Rd1);
+
+
+    // calc (L dot R) / N
+    double LdR;
+    winDotProduct(l, r, x, row, y, LdR);
+    // calc (L dot L) / N
+    double LdL;
+    winDotProduct(l, l, x, row, 0, LdR);
+
+    // calc (R dot R) / N
+    double RdR;
+    winDotProduct(r, r, x+y, row, 0, LdR);
+
+    // calculate correlation coefficient
+    // [n(X.Y) - (X.1)(Y.1)] / [(n(X.X) - X.1)(n(Y.Y - Y.1))]
+    double top = (WINDOW_DIM * WINDOW_DIM) * LdR - Ld1 * Rd1;
+    double bot = ((WINDOW_DIM * WINDOW_DIM) * LdL - Ld1) * ((WINDOW_DIM * WINDOW_DIM) * (RdR - Rd1));
+
+    double corCoef = top / bot;
+
+    out[x + (y*PIC_WIDTH)] = corCoef;
+}
+
 int main()
 {
 //    my reference code
@@ -109,36 +124,21 @@ int main()
     cudaMalloc(&d_leftmtx, sizeof(int) * PIC_WIDTH * PIC_HEIGHT);
     int * d_rightmtx;
     cudaMalloc(&d_rightmtx, sizeof(int) * PIC_WIDTH * PIC_HEIGHT);
-    double* d_LL;
-    cudaMalloc(&d_LL, size_double_mtx);
-    double* d_RR;
-    cudaMalloc(&d_RR, size_double_mtx);
-    double* d_RL;
-    cudaMalloc(&d_RL, size_double_mtx);
-    double* d_LR;
-    cudaMalloc(&d_LR, size_double_mtx);
-    double* d_CorrCoef;
-    cudaMalloc(&d_CorrCoef, size_double_mtx);
-    double* d_distanceCalc;
-    cudaMalloc(&d_distanceCalc, size_double_mtx);
+    double * d_CorrCoef;
+    cudaMalloc(&d_CorrCoef, sizeof(double) * PIC_WIDTH * PIC_HEIGHT);
+    // setup the 2d matrices that will hold the result of our matrix
+    // mult operations, for each combination of pixels on each pixel
 
     cudaMemcpy(d_leftmtx, leftmtx, sizeof(int) * PIC_WIDTH * PIC_HEIGHT, cudaMemcpyHostToDevice);
     cudaMemcpy(d_rightmtx, rightmtx, sizeof(int) * PIC_WIDTH * PIC_HEIGHT, cudaMemcpyHostToDevice);
-    calcRow<<<600,600>>>(d_leftmtx, d_rightmtx, 0, d_LR);
     cudaMemcpy(d_LR, h_LR, sizeof(double) * PIC_WIDTH * PIC_HEIGHT, cudaMemcpyDeviceToHost);
 
     for(int i = 0; i < PIC_WIDTH * PIC_HEIGHT; i++){
         printf("%f", h_LR[i]);
     }
 
-    //get 3d matrix of windows
-    //get 2d matrix of max
     cudaFree(&d_leftmtx);
     cudaFree(&d_rightmtx);
-    cudaFree(&d_LL);
-    cudaFree(&d_RR);
-    cudaFree(&d_RL);
-    cudaFree(&d_LR);
     cudaFree(&d_CorrCoef);
     cudaFree(&d_distanceCalc);
     return 0;
