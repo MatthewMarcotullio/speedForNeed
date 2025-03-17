@@ -65,8 +65,6 @@ __global__ void correlationCoefficient(int *l, int *r, int row, double *out)
 
 	//	if(!(x - (WINDOW_DIM / 2) < 0) && !(x + (WINDOW_DIM / 2) >= PIC_WIDTH)){
 	//		if(!(y - (WINDOW_DIM / 2) < 0) && !(y + (WINDOW_DIM / 2) >= PIC_HEIGHT)){
-	if(true){
-		if(true){
 			double N = WINDOW_DIM * WINDOW_DIM;
 
 			// calc L dot 1
@@ -101,9 +99,8 @@ __global__ void correlationCoefficient(int *l, int *r, int row, double *out)
 			double bot = ((WINDOW_DIM * WINDOW_DIM) * LdL - Ld1) * ((WINDOW_DIM * WINDOW_DIM) * (RdR - Rd1));
 
 			double	corCoef = top / bot;
-			out[x + (y*PIC_WIDTH)] = x;
-		}
-	}
+			__syncthreads();
+			out[x + (y*PIC_WIDTH)] = y;
 
 }
 
@@ -147,9 +144,9 @@ int main()
 	cudaMemcpy(d_rightmtx, rightmtx, sizeof(int) * PIC_WIDTH * PIC_HEIGHT, cudaMemcpyHostToDevice);
 	cudaMemcpy(d_CC, h_CC, sizeof(double) * PIC_WIDTH * PIC_HEIGHT, cudaMemcpyHostToDevice);
 
-	dim3 blockSize(81,81);
-	dim3 gridSize(1);
-	correlationCoefficient<<<1, blockSize>>>(d_leftmtx, d_rightmtx, 20, d_CC);
+	dim3 threadCount(81,81);
+	dim3 blockCount(1,1);
+	correlationCoefficient<<<blockCount, threadCount>>>(d_leftmtx, d_rightmtx, 20, d_CC);
 
 	cudaMemcpy(h_CC, d_CC, sizeof(double) * PIC_WIDTH * PIC_HEIGHT, cudaMemcpyDeviceToHost);
 
