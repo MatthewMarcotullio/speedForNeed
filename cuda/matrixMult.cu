@@ -7,8 +7,8 @@
 #include <cuda_runtime.h>
 
 const int WINDOW_DIM = 9;
-const int PIC_WIDTH = 81;
-const int PIC_HEIGHT = 81;
+const int PIC_WIDTH = 32;
+const int PIC_HEIGHT = 32;
 
 // implementation taken from pg 109 of nvidia cuda C programming guide ver 4.2
 __device__ double doubleAtomicAdd(double* address, double val)
@@ -60,8 +60,8 @@ __device__ void windowSum(int *pic, int x_center, int y_center, double &retVal){
 
 __global__ void correlationCoefficient(int *l, int *r, int row, double *out)
 {
-	int x = threadIdx.x + (blockDim.x * blockIdx.x);
-	int y = threadIdx.y + (blockDim.y * blockIdx.y);
+	int x; x = threadIdx.x + (blockDim.x * blockIdx.x);
+	int y; y = threadIdx.y + (blockDim.y * blockIdx.y);
 
 	//	if(!(x - (WINDOW_DIM / 2) < 0) && !(x + (WINDOW_DIM / 2) >= PIC_WIDTH)){
 	//		if(!(y - (WINDOW_DIM / 2) < 0) && !(y + (WINDOW_DIM / 2) >= PIC_HEIGHT)){
@@ -70,37 +70,32 @@ __global__ void correlationCoefficient(int *l, int *r, int row, double *out)
 			// calc L dot 1
 			double Ld1;
 			windowSum(l, x, row, Ld1);
-			Ld1 = Ld1 / N;
 
 			// calc R dot 1
 			double Rd1;
 			windowSum(r, x + y, row, Rd1);
-			Rd1 = Rd1 / N;
 
 			// calc (L dot R) / N
 			double LdR;
 			winDotProduct(l, r, x, row, y, LdR);
-			LdR = LdR / N;
 
 			// calc (L dot L) / N
 			double LdL;
 			winDotProduct(l, l, x, row, 0, LdL);
-			LdL = LdL / N;
 
 			// calc (R dot R) / N
 			double RdR;
 			winDotProduct(r, r, x+y, row, 0, RdR);
-			RdR = RdR / N;
 			//winDotProduct(r, r, 40+y, 40, 0, LdR);
 
 			// calculate correlation coefficient
 			// [n(X.Y) - (X.1)(Y.1)] / [(n(X.X) - X.1)(n(Y.Y - Y.1))]
-			double top = (WINDOW_DIM * WINDOW_DIM) * LdR - Ld1 * Rd1;
-			double bot = ((WINDOW_DIM * WINDOW_DIM) * LdL - Ld1) * ((WINDOW_DIM * WINDOW_DIM) * (RdR - Rd1));
+			double top = ((N) * LdR) - (Ld1 * Rd1);
+			double bot = ((N * LdL) - Ld1) * (N * (RdR - Rd1));
 
-			double	corCoef = top / bot;
 			__syncthreads();
-			out[x + (y*PIC_WIDTH)] = y;
+			double	corCoef = top / bot;
+			out[x + (y*PIC_WIDTH)] = corCoef;
 
 }
 
@@ -144,9 +139,9 @@ int main()
 	cudaMemcpy(d_rightmtx, rightmtx, sizeof(int) * PIC_WIDTH * PIC_HEIGHT, cudaMemcpyHostToDevice);
 	cudaMemcpy(d_CC, h_CC, sizeof(double) * PIC_WIDTH * PIC_HEIGHT, cudaMemcpyHostToDevice);
 
-	dim3 threadCount(81,81);
+	dim3 threadCount(32,32);
 	dim3 blockCount(1,1);
-	correlationCoefficient<<<blockCount, threadCount>>>(d_leftmtx, d_rightmtx, 20, d_CC);
+	correlationCoefficient<<<1, threadCount>>>(d_leftmtx, d_rightmtx, 20, d_CC);
 
 	cudaMemcpy(h_CC, d_CC, sizeof(double) * PIC_WIDTH * PIC_HEIGHT, cudaMemcpyDeviceToHost);
 
