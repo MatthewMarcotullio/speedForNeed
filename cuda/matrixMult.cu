@@ -1,197 +1,160 @@
-// Created By:      Jacob Huckins & Mikey Thoreson
-// Last Modified:   2/23/2025
+// Cmeated By:      Jacob Huckins & Mikey Thoreson
+// Last Modified:   03/04/2025
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
 
-__device__ float vectorDotProduct(float *vA, float *vB, int size)
+const int WINDOW_DIM = 9;
+const int PIC_WIDTH = 32;
+const int PIC_HEIGHT = 32;
+
+// implementation taken from pg 109 of nvidia cuda C programming guide ver 4.2
+__device__ double doubleAtomicAdd(double* address, double val)
 {
-    // declare shared memory variable
-    extern __shared__ double out = 0;
-
-    // get thread index
-    int i = threadIdx.x;
-
-    // skip out of bounds threads
-    if (i >= size)
-        return;
-
-    // calulate the partial dot proudct
-    float partial = vA[i] * vB[i];
-
-    // sum the partial answers together
-    atomicAdd(&out, partial);
-
-    // wait for all threads to finish atomicAdd operation
-    cudaDeviceSynchronize();
-
-    // thread 0 returns results
-    if (i == 0)
-        return out;
+	unsigned long long int* address_as_ull=
+		(unsigned long long int*) address;
+	unsigned long long int old=*address_as_ull, assumed;
+	do {
+		assumed = old;
+		old = atomicCAS(address_as_ull, assumed,
+				__double_as_longlong(val +
+					__longlong_as_double(assumed)));
+	} while (assumed!= old);
+	return __longlong_as_double(old);
 }
 
-__device__ float correlationCoefficient(int *l, int *r, int width, int height, int pX, int pY, int rightOffset, int wSize)
-{
-    int wSize2 = wSize * wSize;
+__device__ void winDotProduct(int *l_pic, int *r_pic, int x_center, int y_center, int offset, double &retVal){
+	int half_win = (WINDOW_DIM / 2);
+	int l_idx = (x_center - half_win) + ((y_center - half_win) * PIC_WIDTH);
+	int r_idx = (x_center + offset - half_win) + ((y_center  - half_win) * PIC_WIDTH);
+	int l_idx_win = 0;
+	int r_idx_win = 0;
 
-    int left[wSize2];
-    int right[wSize2];
+	retVal = 0;
 
-    // build left and right frames
-    for (int x = -wSize; x < wSize; x++)
-    {
-        for (int y = -wSize; y < wSize; y++)
-        {
-            int i = x + y * wSize;
-
-            left[i] = l[(pX + x) + (y + pY) * wSize];
-            right[i] = r[(pX + x + offset) + (y + pY) * wSize]
-        }
-    }
-
-    // common parameters
-    float one[] = {1.0};
-    dim3 blockSize(1, wSize2);
-    dim3 gridSize(1);
-
-    // calc L dot 1
-    float Ld1 = vectorDotProduct<<<blockSize, gridSize>>>(&left, &one, wSize2);
-
-    // calc R dot 1
-    float Rd1 = vectorDotProduct<<<blockSize, gridSize>>>(&right, &one, wSize2);
-
-    // calc (L dot R) / N
-    float LdR = vectorDotProduct<<<blockSize, gridSize>>>(&left, &right, wSize2);
-
-    // calc (L dot L) / N
-    float LdL = vectorDotProduct<<<blockSize, gridSize>>>(&left, &left, wSize2);
-
-    // calc (R dot R) / N
-    float RdR = vectorDotProduct<<<blockSize, gridSize>>>(&right, &right, wSize2);
-
-    // calculate similarity heuristic
-
+	for(int x = 0; x < WINDOW_DIM; x++){
+		for(int y = 0; y < WINDOW_DIM; y++){
+			l_idx_win = l_idx + (x + (y * PIC_WIDTH));
+			r_idx_win = r_idx + (x + (y * PIC_WIDTH));
+			retVal += l_pic[l_idx_win] * r_pic[r_idx_win];
+		}
+	}
 }
 
-__global__ void matchLR(int *l, int *r, int *out, int width, int height, int windowSize)
-{
-    int x = blockIdx.x * blockDim.x + threadIdx.x;
-    int y = blockIdx.y * blockDim.y + threadIdx.y;
+__device__ void windowSum(int *pic, int x_center, int y_center, double &retVal){
+	int half_win = WINDOW_DIM / 2;
+	int idx = (x_center - half_win) + ((y_center - half_win) * PIC_WIDTH);
+	int idx_win = 0;
 
-    int index = x + y * size;
+	retVal = 0;
 
-    // for each pixel
-    // get a window around it
-    // compute the correlation coefficient of a sliding the window
-    // find the offset that maximizes correlation
+	for(int x= 0; x < WINDOW_DIM; x++){
+		for(int y = 0; y < WINDOW_DIM; y++){
+			idx_win = idx + (x + (y * PIC_WIDTH));
+			retVal += pic[idx_win];
+		}
+	}
 }
 
-// CUDA kernel to square an array
-__global__ void matrixMult(int *a, int *b, int *out, int size)
+__global__ void correlationCoefficient(int *l, int *r, int row, double *out)
 {
-    int x = blockIdx.x * blockDim.x + threadIdx.x;
-    int y = blockIdx.y * blockDim.y + threadIdx.y;
+	int x; x = threadIdx.x + (blockDim.x * blockIdx.x);
+	int y; y = threadIdx.y + (blockDim.y * blockIdx.y);
 
-    int outIndex = x + y * size;
+	//	if(!(x - (WINDOW_DIM / 2) < 0) && !(x + (WINDOW_DIM / 2) >= PIC_WIDTH)){
+	//		if(!(y - (WINDOW_DIM / 2) < 0) && !(y + (WINDOW_DIM / 2) >= PIC_HEIGHT)){
+			double N = WINDOW_DIM * WINDOW_DIM;
 
-    // for position (3, 4) of the result,
-    // multiply each element going left to right accross
-    // the 3rd row of A and the 4th col of B and sum the results
-    int outTotal = 0;
-    for (int i = 0; i < size; i++)
-    {
-        int aInd = i + (y * size);
-        int bInd = x + (i * size);
-        outTotal += a[aInd] * b[bInd];
-    }
-    out[outIndex] = outTotal;
+			// calc L dot 1
+			double Ld1;
+			windowSum(l, x, row, Ld1);
+
+			// calc R dot 1
+			double Rd1;
+			windowSum(r, x + y, row, Rd1);
+
+			// calc (L dot R) / N
+			double LdR;
+			winDotProduct(l, r, x, row, y, LdR);
+
+			// calc (L dot L) / N
+			double LdL;
+			winDotProduct(l, l, x, row, 0, LdL);
+
+			// calc (R dot R) / N
+			double RdR;
+			winDotProduct(r, r, x+y, row, 0, RdR);
+			//winDotProduct(r, r, 40+y, 40, 0, LdR);
+
+			// calculate correlation coefficient
+			// [n(X.Y) - (X.1)(Y.1)] / [(n(X.X) - X.1)(n(Y.Y - Y.1))]
+			double top = ((N) * LdR) - (Ld1 * Rd1);
+			double bot = ((N * LdL) - Ld1) * (N * (RdR - Rd1));
+
+			__syncthreads();
+			double	corCoef = top / bot;
+			out[x + (y*PIC_WIDTH)] = corCoef;
+
 }
 
 int main()
 {
-    // Allocate host memory
-    const int size = 5;
-    const int arrayLen = size * size;
-    int inA[arrayLen] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
-    int inB[arrayLen] = {2, 0, 0, 0, 2, 0, 0, 0, 2};
-    int *output = (int *)malloc(arrayLen * sizeof(int));
-    // fill the inputs with small numbers
-    for (int i = 0; i < arrayLen; i++)
-    {
-        inA[i] = i;
-        inB[i] = i * 2;
-    }
+	//    my reference code
+	//    int* helloMtx = (int*) malloc(sizeof(int) * 9);
+	//    int* d_helloMtx;
+	//    size_t size = 9 * sizeof(int);
+	//
+	//    cudaMalloc(&d_helloMtx, 9 * sizeof(int));
+	//    helloWorld<<<1,9>>>(d_helloMtx);
+	//    cudaMemcpy(helloMtx, d_helloMtx, size, cudaMemcpyDeviceToHost);
+	//    cudaFree(&d_helloMtx);
+	//    for(int i = 0; i < 9; i++){
+	//        printf("%d", helloMtx[i]);
+	//    }
 
-    // Print the inputs to the screen
-    printf("Input A: ");
-    for (int i = 0; i < arrayLen; i++)
-    {
-        if (i % size == 0)
-            printf("\n\t");
+	int* leftmtx = (int*) malloc(sizeof(int) * PIC_WIDTH * PIC_HEIGHT);
+	int* rightmtx = (int*) malloc(sizeof(int) * PIC_WIDTH * PIC_HEIGHT);
+	double* h_CC = (double*) malloc(sizeof(double) * PIC_WIDTH * PIC_HEIGHT); 
+	for(int i = 0; i < PIC_WIDTH * PIC_HEIGHT; i++){
+		leftmtx[i] = i;
+		rightmtx[i] = i;
+		h_CC[i] = 0.0;
+	}
 
-        printf("%d", inA[i]);
+	int dims_2d_mtx = PIC_WIDTH * PIC_HEIGHT;
+	size_t size_double_mtx = sizeof(double) *dims_2d_mtx;
 
-        if (i != arrayLen - 1)
-            printf(", ");
-    }
-    printf("\nInput B: ");
-    for (int i = 0; i < arrayLen; i++)
-    {
-        if (i % size == 0)
-            printf("\n\t");
+	int * d_leftmtx;
+	cudaMalloc(&d_leftmtx, sizeof(int) * PIC_WIDTH * PIC_HEIGHT);
+	int * d_rightmtx;
+	cudaMalloc(&d_rightmtx, sizeof(int) * PIC_WIDTH * PIC_HEIGHT);
+	double * d_CC;
+	cudaMalloc(&d_CC, sizeof(double) * PIC_WIDTH * PIC_HEIGHT);
+	// setup the 2d matrices that will hold the result of our matrix
+	// mult operations, for each combination of pixels on each pixel
 
-        printf("%d", inB[i]);
+	cudaMemcpy(d_leftmtx, leftmtx, sizeof(int) * PIC_WIDTH * PIC_HEIGHT, cudaMemcpyHostToDevice);
+	cudaMemcpy(d_rightmtx, rightmtx, sizeof(int) * PIC_WIDTH * PIC_HEIGHT, cudaMemcpyHostToDevice);
+	cudaMemcpy(d_CC, h_CC, sizeof(double) * PIC_WIDTH * PIC_HEIGHT, cudaMemcpyHostToDevice);
 
-        if (i != arrayLen - 1)
-            printf(", ");
-    }
+	dim3 threadCount(32,32);
+	dim3 blockCount(1,1);
+	correlationCoefficient<<<1, threadCount>>>(d_leftmtx, d_rightmtx, 20, d_CC);
 
-    // Allocate device memory
-    int *d_inA;
-    int *d_inB;
-    int *d_out;
-    cudaMalloc((void **)&d_inA, arrayLen * sizeof(int));
-    cudaMalloc((void **)&d_inB, arrayLen * sizeof(int));
-    cudaMalloc((void **)&d_out, arrayLen * sizeof(int));
+	cudaMemcpy(h_CC, d_CC, sizeof(double) * PIC_WIDTH * PIC_HEIGHT, cudaMemcpyDeviceToHost);
 
-    // Copy inputs to gpu
-    cudaMemcpy(d_inA, inA, arrayLen * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_inB, inB, arrayLen * sizeof(int), cudaMemcpyHostToDevice);
 
-    // Define kernel blockSize and gridSize
-    dim3 blockSize(1);
-    dim3 gridSize(size, size);
+	for(int i = 0; i < PIC_WIDTH; i++){
+		for(int j = 0; j < PIC_HEIGHT; j++){
+			printf("%f ", h_CC[i + (j*PIC_WIDTH)]);
+		}
+		printf("\n");
+	}
 
-    // Call the kernel
-    matrixMult<<<gridSize, blockSize>>>(d_inA, d_inB, d_out, size);
-
-    // Wait for the kernel to finish all blocks in the grid
-    cudaDeviceSynchronize();
-
-    // Copy output from gpu to host
-    cudaMemcpy(output, d_out, arrayLen * sizeof(int), cudaMemcpyDeviceToHost);
-
-    // Print the output to the screen
-    printf("\n\nOutput: ");
-    for (int i = 0; i < arrayLen; i++)
-    {
-        if (i % size == 0)
-            printf("\n\t");
-
-        printf("%d", output[i]);
-
-        if (i != arrayLen - 1)
-            printf(", ");
-    }
-    printf("\n");
-
-    // Free allocated memory
-    cudaFree(d_inA);
-    cudaFree(d_inB);
-    cudaFree(d_out);
-    free(output);
-
-    return 0;
+	cudaFree(&d_leftmtx);
+	cudaFree(&d_rightmtx);
+	cudaFree(&d_CC);
+	return 0;
 }
