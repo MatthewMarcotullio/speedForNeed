@@ -56,7 +56,7 @@ for(int k=0; k<maxDisparity;k++){
 //if valid disp, compute dist and save
 if(disparity > 0){
 	distance = baseLine*focalLength/disparity;
-	depth[row*cols+col] = (unsigned char) (255*distance/maxDistance);	
+	depth[row*cols+col] = (unsigned char) (255.0*distance/maxDistance);	
 }
 else{
 	depth[row*cols+col]=255;
