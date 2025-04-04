@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include <jpeglib.h>
 
 const int WINDOW_DIM = 9;
 const int PIC_WIDTH = 32;
@@ -30,8 +31,7 @@ __device__ void winDotProduct(int *l_pic, int *r_pic, int x_center, int y_center
 	int l_idx = (x_center - half_win) + ((y_center - half_win) * PIC_WIDTH);
 	int r_idx = (x_center + offset - half_win) + ((y_center  - half_win) * PIC_WIDTH);
 	int l_idx_win = 0;
-	int r_idx_win = 0;
-
+	int r_idx_win = 0; 
 	retVal = 0;
 
 	for(int x = 0; x < WINDOW_DIM; x++){
@@ -63,8 +63,8 @@ __global__ void correlationCoefficient(int *l, int *r, int row, double *out)
 	int x; x = threadIdx.x + (blockDim.x * blockIdx.x);
 	int y; y = threadIdx.y + (blockDim.y * blockIdx.y);
 
-	//	if(!(x - (WINDOW_DIM / 2) < 0) && !(x + (WINDOW_DIM / 2) >= PIC_WIDTH)){
-	//		if(!(y - (WINDOW_DIM / 2) < 0) && !(y + (WINDOW_DIM / 2) >= PIC_HEIGHT)){
+	if(!(x - (WINDOW_DIM / 2) < 0) && !(x + (WINDOW_DIM / 2) >= PIC_WIDTH)){
+		if(!(y - (WINDOW_DIM / 2) < 0) && !(y + (WINDOW_DIM / 2) >= PIC_HEIGHT)){
 			double N = WINDOW_DIM * WINDOW_DIM;
 
 			// calc L dot 1
@@ -90,14 +90,37 @@ __global__ void correlationCoefficient(int *l, int *r, int row, double *out)
 
 			// calculate correlation coefficient
 			// [n(X.Y) - (X.1)(Y.1)] / [(n(X.X) - X.1)(n(Y.Y - Y.1))]
-			double top = ((N) * LdR) - (Ld1 * Rd1);
-			double bot = ((N * LdL) - Ld1) * (N * (RdR - Rd1));
+			//double top = ((N) * LdR) - (Ld1 * Rd1);
+			double top = (LdR/N) - ((Ld1/N)*(Rd1/N));
+			//double bot = ((N * LdL) - Ld1) * (N * (RdR - Rd1));
+			double bot = sqrtf(
+					(LdL/N) - ((Ld1/N)*(Ld1/N))
+					) *
+				sqrtf(
+						(RdR/N) - ((Rd1/N)*(Rd1/N))
+				     );
 
 			__syncthreads();
-			double	corCoef = top / bot;
-			out[x + (y*PIC_WIDTH)] = corCoef;
-
+			out[x + (y*PIC_WIDTH)] = (top/bot);
+		}
+	}
+	else
+	{
+		out[x + (y*PIC_WIDTH)] = 0.0;
+	}
 }
+//image utilities
+
+PPMImage* readPPM(const char* filename, int type) {
+	FILE* file = fopen(filename, "rb");
+	int numBytes;
+
+	if (!file) {
+		perror("Error opening file");
+		exit(0);
+	}
+
+	if(type==0) numBytes=1; //grayscale
 
 int main()
 {
@@ -114,47 +137,47 @@ int main()
 	//        printf("%d", helloMtx[i]);
 	//    }
 
-	int* leftmtx = (int*) malloc(sizeof(int) * PIC_WIDTH * PIC_HEIGHT);
-	int* rightmtx = (int*) malloc(sizeof(int) * PIC_WIDTH * PIC_HEIGHT);
-	double* h_CC = (double*) malloc(sizeof(double) * PIC_WIDTH * PIC_HEIGHT); 
+	int* leftimg = (int*) malloc(sizeof(int) * PIC_WIDTH * PIC_HEIGHT);
+	int* rightimg = (int*) malloc(sizeof(int) * PIC_WIDTH * PIC_HEIGHT);
+	double* h_CorrCoefMtx = (double*) malloc(sizeof(double) * PIC_WIDTH * PIC_HEIGHT); 
 	for(int i = 0; i < PIC_WIDTH * PIC_HEIGHT; i++){
-		leftmtx[i] = i;
-		rightmtx[i] = i;
-		h_CC[i] = 0.0;
+			leftimg[i] = i;
+			rightimg[i] = (i*i)%255;
+			h_CorrCoefMtx[i] = 0.0;
 	}
 
-	int dims_2d_mtx = PIC_WIDTH * PIC_HEIGHT;
-	size_t size_double_mtx = sizeof(double) *dims_2d_mtx;
+	int picSize = PIC_WIDTH * PIC_HEIGHT;
 
-	int * d_leftmtx;
-	cudaMalloc(&d_leftmtx, sizeof(int) * PIC_WIDTH * PIC_HEIGHT);
-	int * d_rightmtx;
-	cudaMalloc(&d_rightmtx, sizeof(int) * PIC_WIDTH * PIC_HEIGHT);
+	int * d_leftimg;
+	cudaMalloc(&d_leftimg, sizeof(int) * picSize);
+	int * d_rightimg;
+	cudaMalloc(&d_rightimg, sizeof(int) * picSize);
 	double * d_CC;
-	cudaMalloc(&d_CC, sizeof(double) * PIC_WIDTH * PIC_HEIGHT);
+	cudaMalloc(&d_CC, sizeof(double) * picSize);
+
 	// setup the 2d matrices that will hold the result of our matrix
 	// mult operations, for each combination of pixels on each pixel
 
-	cudaMemcpy(d_leftmtx, leftmtx, sizeof(int) * PIC_WIDTH * PIC_HEIGHT, cudaMemcpyHostToDevice);
-	cudaMemcpy(d_rightmtx, rightmtx, sizeof(int) * PIC_WIDTH * PIC_HEIGHT, cudaMemcpyHostToDevice);
-	cudaMemcpy(d_CC, h_CC, sizeof(double) * PIC_WIDTH * PIC_HEIGHT, cudaMemcpyHostToDevice);
+	cudaMemcpy(d_leftimg, leftimg, sizeof(int) * PIC_WIDTH * PIC_HEIGHT, cudaMemcpyHostToDevice);
+	cudaMemcpy(d_rightimg, rightimg, sizeof(int) * PIC_WIDTH * PIC_HEIGHT, cudaMemcpyHostToDevice);
+	cudaMemcpy(d_CC, h_CorrCoefMtx, sizeof(double) * PIC_WIDTH * PIC_HEIGHT, cudaMemcpyHostToDevice);
 
 	dim3 threadCount(32,32);
 	dim3 blockCount(1,1);
-	correlationCoefficient<<<1, threadCount>>>(d_leftmtx, d_rightmtx, 20, d_CC);
+	correlationCoefficient<<<blockCount, threadCount>>>(d_leftimg, d_rightimg, 20, d_CC);
 
-	cudaMemcpy(h_CC, d_CC, sizeof(double) * PIC_WIDTH * PIC_HEIGHT, cudaMemcpyDeviceToHost);
+	cudaMemcpy(h_CorrCoefMtx, d_CC, sizeof(double) * PIC_WIDTH * PIC_HEIGHT, cudaMemcpyDeviceToHost);
 
 
 	for(int i = 0; i < PIC_WIDTH; i++){
 		for(int j = 0; j < PIC_HEIGHT; j++){
-			printf("%f ", h_CC[i + (j*PIC_WIDTH)]);
+			printf("%f ", h_CorrCoefMtx[i + (j*PIC_WIDTH)]);
 		}
 		printf("\n");
 	}
 
-	cudaFree(&d_leftmtx);
-	cudaFree(&d_rightmtx);
+	cudaFree(&d_leftimg);
+	cudaFree(&d_rightimg);
 	cudaFree(&d_CC);
 	return 0;
 }
