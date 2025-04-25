@@ -8,12 +8,12 @@ using namespace std;
 int main() {
     
 // Load left and right stereo images
-    Mat leftImage  = imread("leftBW.ppm", 0);
-    Mat rightImage = imread("rightBW.ppm", 0);
+    Mat leftImageColor  = imread("leftCalib.jpg");
+    Mat rightImageColor = imread("rightCalib.jpg");
 
-    // cv::Mat leftImage,rightImage;
-    // cv::cvtColor(leftImageColor,leftImage, cv::COLOR_BGR2GRAY);
-    // cv::cvtColor(rightImageColor,rightImage, cv::COLOR_BGR2GRAY);
+     cv::Mat leftImage,rightImage;
+    cv::cvtColor(leftImageColor,leftImage, cv::COLOR_BGR2GRAY);
+     cv::cvtColor(rightImageColor,rightImage, cv::COLOR_BGR2GRAY);
 
     imshow("left",leftImage);
     imshow("right",rightImage);

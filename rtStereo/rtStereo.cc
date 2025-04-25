@@ -36,6 +36,20 @@ if( map1y.empty()) cout << "Empty 1y lookup table"<<endl;
 if( map2x.empty()) cout << "Empty 2x lookup table"<<endl;
 if( map2y.empty()) cout << "Empty 2y lookup table"<<endl;
 
+float offset = 50.0;
+
+for(int y=0; y<rows; y++){
+	for (int x =0; x<cols; x++){
+		if(y+offset<0) map2y.at<float>(y,x) = 0.0;
+		else if (y+offset>rows) map2y.at<float>(y,x) = (float)rows;
+		else map2y.at<float>(y,x) = (float)y + offset;
+	}
+}
+
+
+
+
+
 // GStreamer pipeline for Jetson Nano with IMX219-83 cameras
  string left_cam_pipeline  = "nvarguscamerasrc sensor-id=0 ! video/x-raw(memory:NVMM), width=640, height=480, framerate="+to_string(fps)+
                               "/1 ! nvvidconv flip-method=rotate-180 ! video/x-raw, format=GRAY8 !  appsink drop=1";
@@ -85,17 +99,23 @@ if( map2y.empty()) cout << "Empty 2y lookup table"<<endl;
       stereoDepth(&rectifiedLeft, &rectifiedRight, &depthImage, maxDistance, rows, cols);
 
      // Smooth the depth image
-     Mat medianFiltered;
-     medianBlur(depthImage, medianFiltered, 3);
+    // Mat medianFiltered;
+    // medianBlur(depthImage, medianFiltered, 3);
 
       // display depth map
-      imshow("Depth",medianFiltered);
+      imshow("Depth",depthImage);
       hconcat(rectifiedLeft, rectifiedRight,both);
       imshow("Left and Right",both);
   
 
       // pause
       waitKey(frameDelay) ;
+      	
+	
+      char key = (char)cv::waitKey(1);
+      if (key == 'q'){
+      	break;
+      }
 
 
     }

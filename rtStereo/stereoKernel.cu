@@ -16,11 +16,11 @@ int row = blockIdx.y*blockDim.y + threadIdx.y;
 // This code should only be for one pixel
 // See the video I posted on acceleration stereo on the GPU
 
-const int windowWidth = 11;
+const int windowWidth = 9;
 const int halfWindow = (windowWidth -1 / 2);
 double baseLine = 60.0;
 double focalLength = 560.0;
-double maxDisparity = 71;
+double maxDisparity = 65;
 
 unsigned char leftPixel;
 unsigned char rightPixel;
