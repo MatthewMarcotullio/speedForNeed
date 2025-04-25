@@ -124,7 +124,47 @@ float offset = 7.0;
       hconcat(rectifiedLeft, rectifiedRight,both);
       imshow("Left and Right",both);
   
+
+
+
+	// build obstacle map
+	Mat obstacles;
+	obstacles = medianFiltered;
+
+	double threshold_dist = 0.0;
 	
+	 for (int i = 0; i < rows; ++i) {
+	         for (int j = 0; j < cols; ++j) {
+     			 uchar curr_pixel = obstacles.at<uchar>(i,j);
+			if(curr_pixel > threshold_dist)) curr_pixel = 255;
+			else curr_pixel = 0;
+			obstacles.at<uchar>(i,j) = curr_pixel;
+
+	imshow("obstacles", obstacles);	
+	// end obstacle map
+	
+	//detection
+	left_window = cols/3;
+	center_window = 2*cols/3;
+	right_window = cols;
+
+	//add values in center window
+	int center_sum = 0;
+	for(int i=(left_window + 1); i < right_window+1;i++){
+		for(int j = 0; j < rows; ++j){
+		 uchar curr_pixel = obstacles.at<uchar>(i,j);
+		 center_sum+= curr_pixel;}
+
+
+	//----
+	int obstacle_sum_threshold = 510;
+	bool is_clear = true;
+	if(center_sum > obstacle_sum_threshold){
+		is_clear = false;}
+	
+	// STEER COMMANDS GO HERE
+
+
 
       // pause
       char key = waitKey(frameDelay);
