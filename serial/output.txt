@@ -1,0 +1,2 @@
+gcc   -c test.cc -o test.o
+Makefile:25: recipe for target 'test.o' failed

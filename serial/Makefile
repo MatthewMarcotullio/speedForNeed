@@ -5,7 +5,7 @@ NVCC =/usr/local/cuda/bin/nvcc
 # Compiler flags
 
 #Load Libraries
-LDLIBS = -I/usr/include/opencv4 -ljpeg -lm -lopencv_core -lopencv_imgproc -lopencv_calib3d -lopencv_highgui -lopencv_imgcodecs -lopencv_calib3d -llapacke -llapack -lblas -lcuda -lopencv_videoio
+LDLIBS = -I/usr/include/opencv4 -ljpeg -lm -lopencv_core -lopencv_imgproc -lopencv_calib3d -lopencv_highgui -lopencv_imgcodecs -lopencv_calib3d -llapacke -llapack -lblas -lcuda -lopencv_videoio -lncurses
 
 # Source files
 CCSRCS = test.cc serialUtils.cc 

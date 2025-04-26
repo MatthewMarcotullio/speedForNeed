@@ -18,6 +18,7 @@ using namespace std;
 int start(int serial_port_in);
 int stop(int serial_port_in);
 int turn(int serial_port_in, char* degrees);
+int set_speed(int serial_port_in, char* speed);
 
 #endif
 
