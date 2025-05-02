@@ -17,10 +17,11 @@ int row = blockIdx.y*blockDim.y + threadIdx.y;
 // See the video I posted on acceleration stereo on the GPU
 
 const int windowWidth = 9;
-const int halfWindow = (windowWidth -1 / 2);
+const int halfWindow = (windowWidth -1) / 2;
+int diffThresh = windowWidth * windowWidth * 255 * 255;
 double baseLine = 60.0;
 double focalLength = 560.0;
-double maxDisparity = 65;
+double maxDisparity = 200;
 
 unsigned char leftPixel;
 unsigned char rightPixel;
@@ -54,10 +55,13 @@ for(int k=0; k<maxDisparity;k++){
 	}
 }
 //if valid disp, compute dist and save
-if(disparity > 0){
+if(disparity > 0 && sumSqDiff < diffThresh){
 	distance = baseLine*focalLength/disparity;
-	depth[row*cols+col] = (unsigned char) (255*distance/maxDistance);	
+	if (distance < maxDistance)
+	depth[row*cols+col] = (unsigned char) (255.0*distance/maxDistance);	
+	else depth[row*cols+col] = 255;
 }
+
 else{
 	depth[row*cols+col]=255;
 }
